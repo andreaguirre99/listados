@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Generador de Listados Nominales</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f5f4f0;--surface:#fff;--s2:#eeedea;--border:#e0ddd5;--border2:#c5c2b8;
+  --text:#18170f;--t2:#6b6860;--t3:#a09d94;
+  --ok-bg:#e6f4ed;--ok:#186b3a;--warn-bg:#fef5e0;--warn:#8a5f08;
+  --info-bg:#e6eefb;--info:#1847a8;
+  --r:10px;--rs:6px;
+}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+.layout{display:flex;min-height:100vh}
+.sidebar{width:240px;flex-shrink:0;background:var(--text);color:#fff;padding:2rem 1.5rem;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow:hidden}
+.main{flex:1;min-width:0;padding:2.5rem 3rem}
+.s-tag{font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.3);margin-bottom:1.25rem}
+.s-title{font-size:18px;font-weight:500;line-height:1.4;margin-bottom:2.5rem;color:#fff}
+.s-steps{display:flex;flex-direction:column;gap:2px}
+.s-step{display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:var(--rs);font-size:13px;color:rgba(255,255,255,.35);transition:.15s}
+.s-step.active{color:#fff;background:rgba(255,255,255,.1)}
+.s-step.done{color:rgba(255,255,255,.55)}
+.s-num{width:21px;height:21px;border-radius:50%;border:1.5px solid currentColor;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex-shrink:0}
+.s-step.done .s-num{background:rgba(255,255,255,.18);border-color:transparent}
+.s-foot{margin-top:auto;font-size:11px;color:rgba(255,255,255,.22);line-height:1.7}
+.panel{display:none;max-width:580px}
+.panel.active{display:block;animation:up .2s ease}
+@keyframes up{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.p-tag{font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--t3);margin-bottom:5px}
+.p-title{font-size:26px;font-weight:500;margin-bottom:2rem}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:1.5rem;margin-bottom:1rem}
+.card-title{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--t3);margin-bottom:1.25rem}
+.field{margin-bottom:1.1rem}
+.field:last-child{margin-bottom:0}
+.field > label{display:block;font-size:13px;font-weight:500;margin-bottom:5px}
+.field .hint{font-size:12px;color:var(--t3);margin-top:4px;line-height:1.5}
+input[type=text],select{display:block;width:100%;padding:9px 12px;font-family:'DM Sans',sans-serif;font-size:14px;color:var(--text);background:var(--surface);border:1px solid var(--border2);border-radius:var(--rs);outline:none;transition:.15s;-webkit-appearance:none;appearance:none}
+select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23a09d94' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:34px;cursor:pointer}
+input[type=text]:focus,select:focus{border-color:var(--text);box-shadow:0 0 0 3px rgba(24,23,15,.06)}
+.mono-hint{font-family:'DM Mono',monospace;font-size:11.5px;color:var(--t2);background:var(--s2);border-radius:var(--rs);padding:6px 10px;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.upload-zone{border:2px dashed var(--border2);border-radius:var(--r);padding:2.5rem 2rem;text-align:center;cursor:pointer;transition:.15s;background:var(--surface)}
+.upload-zone:hover,.upload-zone.drag{background:var(--s2);border-color:#888}
+.u-icon{font-size:36px;margin-bottom:.75rem}
+.u-main{font-size:15px;font-weight:500;margin-bottom:3px}
+.u-sub{font-size:13px;color:var(--t3)}
+.fp{display:flex;align-items:center;gap:12px;padding:11px 14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);margin-top:10px}
+.fp-ic{font-size:20px}
+.fp-name{font-size:14px;font-weight:500}
+.fp-meta{font-size:12px;color:var(--t3);margin-top:2px}
+.cols-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px}
+.col-lbl{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--rs);font-size:13px;cursor:pointer;transition:.1s;user-select:none;word-break:break-word}
+.col-lbl:hover{background:var(--s2)}
+.col-lbl.on{background:var(--s2);border-color:var(--border2)}
+.col-lbl input{cursor:pointer;accent-color:var(--text);flex-shrink:0}
+.actions{display:flex;gap:8px;margin-top:1.5rem;flex-wrap:wrap}
+.btn{padding:10px 22px;border-radius:var(--rs);font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;cursor:pointer;border:none;transition:.15s;white-space:nowrap}
+.btn-dk{background:var(--text);color:#fff}
+.btn-dk:hover{background:#333}
+.btn-dk:disabled{background:var(--border2);cursor:not-allowed}
+.btn-out{background:transparent;border:1px solid var(--border2);color:var(--text)}
+.btn-out:hover{background:var(--s2)}
+.alert{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:var(--rs);font-size:13px;line-height:1.5;margin-bottom:1rem}
+.alert-warn{background:var(--warn-bg);color:var(--warn);border:1px solid #f5d98a}
+.alert-ok{background:var(--ok-bg);color:var(--ok);border:1px solid #b3ddc3}
+.a-ic{font-size:15px;flex-shrink:0;margin-top:1px}
+.dup-opts{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.dup-btn{padding:5px 13px;border-radius:var(--rs);font-size:12px;font-weight:500;cursor:pointer;border:1px solid var(--border2);background:var(--surface);color:var(--text);font-family:'DM Sans',sans-serif;transition:.1s}
+.dup-btn.on{background:var(--warn);color:#fff;border-color:var(--warn)}
+.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:1.5rem}
+.metric{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:1rem 1.25rem}
+.m-lbl{font-size:12px;color:var(--t3);margin-bottom:4px}
+.m-val{font-size:26px;font-weight:500;line-height:1}
+.tbl-wrap{border:1px solid var(--border);border-radius:var(--r);overflow:hidden;background:var(--surface);margin-bottom:.5rem}
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead{background:var(--s2)}
+th{padding:9px 14px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:var(--t3);border-bottom:1px solid var(--border);white-space:nowrap}
+td{padding:8px 14px;border-bottom:1px solid var(--border);color:var(--text)}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover td{background:var(--s2)}
+.mono{font-family:'DM Mono',monospace;font-size:11px;color:var(--t2)}
+.badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;background:var(--info-bg);color:var(--info)}
+.tbl-more{padding:7px 14px;font-size:12px;color:var(--t3)}
+.prog-wrap{height:4px;background:var(--border);border-radius:99px;overflow:hidden;margin:.75rem 0 1.5rem}
+.prog-bar{height:100%;background:var(--text);border-radius:99px;transition:width .2s;width:0%}
+.log{font-size:13px;color:var(--t2);line-height:2.1;max-height:280px;overflow-y:auto}
+.log-ok{color:var(--ok)}
+.done-wrap{margin-top:2rem}
+.done-check{width:44px;height:44px;background:var(--ok-bg);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:1rem}
+@media(max-width:640px){.layout{flex-direction:column}.sidebar{width:100%;height:auto;position:relative}.main{padding:1.5rem}.metrics{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="s-tag">Herramienta institucional</div>
+    <div class="s-title">Generador de listados nominales</div>
+    <nav class="s-steps">
+      <div class="s-step active" id="n1"><div class="s-num">1</div>&nbsp;Cargar archivo</div>
+      <div class="s-step" id="n2"><div class="s-num">2</div>&nbsp;Configurar</div>
+      <div class="s-step" id="n3"><div class="s-num">3</div>&nbsp;Revisar</div>
+      <div class="s-step" id="n4"><div class="s-num">4</div>&nbsp;Descargar</div>
+    </nav>
+    <div class="s-foot">Los datos no salen de tu navegador.<br>Sin servidor. Sin conexion a internet.</div>
+  </aside>
+  <main class="main">
+
+    <div class="panel active" id="p1">
+      <div class="p-tag">Paso 1 de 4</div>
+      <div class="p-title">Cargar archivo</div>
+      <div class="upload-zone" id="dropZone">
+        <div class="u-icon">&#128194;</div>
+        <div class="u-main">Arrastra tu archivo aca o haz clic para buscarlo</div>
+        <div class="u-sub">.xlsx &middot; .xls &middot; .csv</div>
+        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display:none">
+      </div>
+      <div class="fp" id="filePill" style="display:none">
+        <div class="fp-ic">&#128196;</div>
+        <div><div class="fp-name" id="fName"></div><div class="fp-meta" id="fMeta"></div></div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-dk" id="btn1" disabled onclick="goStep2()">Continuar &rarr;</button>
+      </div>
+    </div>
+
+    <div class="panel" id="p2">
+      <div class="p-tag">Paso 2 de 4</div>
+      <div class="p-title">Configurar listados</div>
+      <div class="card">
+        <div class="card-title">Identificacion</div>
+        <div class="field">
+          <label for="folderName">Nombre del conjunto de listados</label>
+          <input type="text" id="folderName" placeholder="ej: Turno manana 2026" autocomplete="off">
+          <div class="mono-hint" id="hFolder">&#128193; Listados nominales - ...</div>
+        </div>
+        <div class="field">
+          <label for="idCol">Variable identificadora <span style="font-weight:400;color:var(--t3)">(para eliminar duplicados)</span></label>
+          <select id="idCol"></select>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Agrupamiento</div>
+        <div class="field">
+          <label for="g1">Variable de agrupamiento 1</label>
+          <select id="g1"></select>
+          <div class="hint">Se genera un archivo .xlsx por cada valor unico de esta variable.</div>
+        </div>
+        <div class="field">
+          <label for="g2">Variable de agrupamiento 2 <span style="font-weight:400;color:var(--t3)">(opcional)</span></label>
+          <select id="g2"><option value="">&#8212; ninguna &#8212;</option></select>
+          <div class="hint">Aparece como segundo segmento en el nombre del archivo.</div>
+        </div>
+        <div class="mono-hint" id="hFile">&#128196; Listado - [grupo1].xlsx</div>
+      </div>
+      <div class="card">
+        <div class="card-title">Campos a incluir en el listado</div>
+        <div class="cols-grid" id="colsGrid"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Ordenamiento</div>
+        <div class="field">
+          <label for="sortCol">Ordenar por</label>
+          <select id="sortCol"></select>
+          <div class="hint">Orden alfabetico ascendente por la columna seleccionada.</div>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-out" onclick="goStep(1)">&larr; Atras</button>
+        <button class="btn btn-dk" onclick="goStep3()">Continuar &rarr;</button>
+      </div>
+    </div>
+
+    <div class="panel" id="p3">
+      <div class="p-tag">Paso 3 de 4</div>
+      <div class="p-title">Revisar y confirmar</div>
+      <div id="dupSec"></div>
+      <div class="metrics" id="metSec"></div>
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--t3);margin-bottom:8px">Vista previa de archivos</div>
+      <div class="tbl-wrap" id="prevSec"></div>
+      <div class="actions" style="margin-top:1.5rem">
+        <button class="btn btn-out" onclick="goStep(2)">&larr; Atras</button>
+        <button class="btn btn-dk" onclick="generateZip()">Generar ZIP &darr;</button>
+      </div>
+    </div>
+
+    <div class="panel" id="p4">
+      <div class="p-tag">Paso 4 de 4</div>
+      <div class="p-title">Generando archivos</div>
+      <div class="prog-wrap"><div class="prog-bar" id="progBar"></div></div>
+      <div class="log" id="logArea"></div>
+      <div class="done-wrap" id="doneSec" style="display:none">
+        <div class="done-check">&#10003;</div>
+        <div style="font-size:18px;font-weight:500;margin-bottom:3px" id="doneTitle"></div>
+        <div style="font-size:13px;color:var(--t3);margin-bottom:1.5rem" id="doneSub"></div>
+        <div class="actions">
+          <button class="btn btn-dk" id="dlBtn">&darr; Descargar ZIP</button>
+          <button class="btn btn-out" onclick="restart()">Nuevo listado</button>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+<script>
+var allRows,headers,cfg,dupChoice='first';
+function $(id){return document.getElementById(id)}
+
+document.getElementById('dropZone').onclick=function(){document.getElementById('fileInput').click()};
+document.getElementById('dropZone').ondragover=function(e){e.preventDefault();this.classList.add('drag')};
+document.getElementById('dropZone').ondragleave=function(){this.classList.remove('drag')};
+document.getElementById('dropZone').ondrop=function(e){e.preventDefault();this.classList.remove('drag');load(e.dataTransfer.files[0])};
+document.getElementById('fileInput').onchange=function(e){load(e.target.files[0])};
+
+function load(file){
+  if(!file)return;
+  var r=new FileReader();
+  r.onload=function(e){
+    var wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+    var ws=wb.Sheets[wb.SheetNames[0]];
+    allRows=XLSX.utils.sheet_to_json(ws,{defval:''});
+    headers=allRows.length?Object.keys(allRows[0]):[];
+    $('fName').textContent=file.name;
+    $('fMeta').textContent=allRows.length.toLocaleString()+' filas \xb7 '+headers.length+' columnas \xb7 hoja: "'+wb.SheetNames[0]+'"';
+    $('filePill').style.display='flex';
+    $('btn1').disabled=false;
+  };
+  r.readAsArrayBuffer(file);
+}
+
+function goStep2(){
+  var ids=['idCol','g1','g2','sortCol'];
+  for(var i=0;i<ids.length;i++){
+    var id=ids[i],el=$(id),blank=(id==='g2'||id==='sortCol');
+    el.innerHTML=blank?'<option value="">\u2014 ninguna / default \u2014</option>':'';
+    for(var j=0;j<headers.length;j++){
+      var o=document.createElement('option');o.value=headers[j];o.textContent=headers[j];el.appendChild(o);
+    }
+  }
+  var grid=$('colsGrid');grid.innerHTML='';
+  for(var k=0;k<headers.length;k++){
+    var h=headers[k];
+    var lbl=document.createElement('label');
+    lbl.className='col-lbl on';
+    lbl.innerHTML='<input type="checkbox" checked value="'+h+'"> '+h;
+    (function(l){l.querySelector('input').onchange=function(){l.classList.toggle('on',this.checked)}})(lbl);
+    grid.appendChild(lbl);
+  }
+  updateHints();
+  goStep(2);
+}
+
+function updateHints(){
+  var n=$('folderName').value.trim()||'...';
+  $('hFolder').textContent='\uD83D\uDCC1 Listados nominales - '+n;
+  var g1v=$('g1').value||'[grupo1]',g2v=$('g2').value;
+  $('hFile').textContent=g2v
+    ?'\uD83D\uDCC4 Listado - [val. '+g1v+'] - [val. '+g2v+'].xlsx'
+    :'\uD83D\uDCC4 Listado - [valor de '+g1v+'].xlsx';
+}
+
+$('folderName').oninput=updateHints;
+document.addEventListener('change',function(e){if(e.target.id==='g1'||e.target.id==='g2')updateHints()});
+
+function selCols(){
+  var checked=[].slice.call($('colsGrid').querySelectorAll('input:checked'));
+  return checked.map(function(i){return i.value});
+}
+
+function dedup(rows,col,mode){
+  var seen={},order=[];
+  for(var i=0;i<rows.length;i++){
+    var k=String(rows[i][col]||'').trim().toLowerCase();
+    if(!(k in seen)||mode==='last'){seen[k]=i}
+  }
+  var vals=[];for(var key in seen)vals.push(seen[key]);
+  vals.sort(function(a,b){return a-b});
+  return vals.map(function(i){return rows[i]});
+}
+
+function groupBy(rows,col){
+  var m={};
+  for(var i=0;i<rows.length;i++){
+    var k=String(rows[i][col]||'').trim();
+    if(!m[k])m[k]=[];m[k].push(rows[i]);
+  }
+  return m;
+}
+
+function goStep3(){
+  if(!$('folderName').value.trim()){alert('Ingresa un nombre para los listados.');return}
+  if(!$('idCol').value){alert('Selecciona la variable identificadora.');return}
+  if(!$('g1').value){alert('Selecciona la variable de agrupamiento 1.');return}
+  if(!selCols().length){alert('Selecciona al menos un campo.');return}
+  cfg={idCol:$('idCol').value,g1:$('g1').value,g2:$('g2').value,
+    sortCol:$('sortCol').value,cols:selCols(),folderName:$('folderName').value.trim()};
+
+  var seen={},dups=[];
+  for(var i=0;i<allRows.length;i++){
+    var k=String(allRows[i][cfg.idCol]||'').trim().toLowerCase();
+    if(k in seen)dups.push(i);else seen[k]=i;
+  }
+  var ds=$('dupSec');
+  if(dups.length){
+    dupChoice='first';
+    ds.innerHTML='<div class="alert alert-warn"><span class="a-ic">\u26a0</span><div>'
+      +'<strong>'+dups.length+' duplicados</strong> segun <em>'+cfg.idCol+'</em>. Cual conservar?'
+      +'<div class="dup-opts">'
+      +'<button class="dup-btn on" id="df" onclick="setDup(\'first\')">Primera ocurrencia</button>'
+      +'<button class="dup-btn" id="dl" onclick="setDup(\'last\')">Ultima ocurrencia</button>'
+      +'</div></div></div>';
+  }else{
+    ds.innerHTML='<div class="alert alert-ok"><span class="a-ic">\u2713</span> Sin duplicados en <em>'+cfg.idCol+'</em>.</div>';
+  }
+
+  var deduped=dedup(allRows,cfg.idCol,'first');
+  var groups=groupBy(deduped,cfg.g1);
+  var keys=Object.keys(groups).sort();
+
+  $('metSec').innerHTML=
+    '<div class="metric"><div class="m-lbl">Filas originales</div><div class="m-val">'+allRows.length.toLocaleString()+'</div></div>'
+    +'<div class="metric"><div class="m-lbl">Sin duplicados</div><div class="m-val">'+deduped.length.toLocaleString()+'</div></div>'
+    +'<div class="metric"><div class="m-lbl">Archivos a generar</div><div class="m-val">'+keys.length+'</div></div>';
+
+  var trows='';
+  var preview=keys.slice(0,6);
+  for(var p=0;p<preview.length;p++){
+    var kk=preview[p];
+    var g2v=cfg.g2&&groups[kk][0]?groups[kk][0][cfg.g2]:'';
+    var fn=cfg.g2&&g2v?'Listado - '+kk+' - '+g2v+'.xlsx':'Listado - '+kk+'.xlsx';
+    trows+='<tr><td>'+kk+'</td><td class="mono">'+fn+'</td><td><span class="badge">'+groups[kk].length+'</span></td></tr>';
+  }
+  $('prevSec').innerHTML='<table><thead><tr><th>'+cfg.g1+'</th><th>Nombre de archivo</th><th>Registros</th></tr></thead><tbody>'+trows+'</tbody></table>'
+    +(keys.length>6?'<div class="tbl-more">y '+(keys.length-6)+' grupo(s) mas...</div>':'');
+  goStep(3);
+}
+
+function setDup(c){
+  dupChoice=c;
+  $('df').classList.toggle('on',c==='first');
+  $('dl').classList.toggle('on',c==='last');
+}
+
+function generateZip(){
+  goStep(4);
+  var idCol=cfg.idCol,g1=cfg.g1,g2=cfg.g2,sortCol=cfg.sortCol,cols=cfg.cols,folderName=cfg.folderName;
+  var deduped=dedup(allRows,idCol,dupChoice);
+  var groups=groupBy(deduped,g1);
+  var keys=Object.keys(groups).sort();
+  var zip=new JSZip();
+  var folder=zip.folder('Listados nominales - '+folderName);
+  var log=$('logArea'),bar=$('progBar');
+  log.innerHTML='';
+  var i=0;
+  function processNext(){
+    if(i>=keys.length){
+      zip.generateAsync({type:'blob'}).then(function(blob){
+        var url=URL.createObjectURL(blob);
+        $('doneTitle').textContent=keys.length+' archivos generados';
+        $('doneSub').textContent='Listados nominales - '+folderName+'.zip';
+        $('dlBtn').onclick=function(){
+          var a=document.createElement('a');a.href=url;
+          a.download='Listados nominales - '+folderName+'.zip';a.click();
+        };
+        $('doneSec').style.display='block';
+      });
+      return;
+    }
+    var k=keys[i];
+    var rows=groups[k].slice();
+    var sk=sortCol||cols[0];
+    rows.sort(function(a,b){return String(a[sk]||'').localeCompare(String(b[sk]||''),'es')});
+    var data=rows.map(function(r){var o={};cols.forEach(function(c){o[c]=r[c]||''});return o});
+    var ws=XLSX.utils.json_to_sheet(data);
+    var wb2=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb2,ws,'Listado');
+    var g2v=g2&&rows[0]?rows[0][g2]:'';
+    var fn=g2&&g2v?'Listado - '+k+' - '+g2v+'.xlsx':'Listado - '+k+'.xlsx';
+    folder.file(fn,XLSX.write(wb2,{bookType:'xlsx',type:'array'}));
+    bar.style.width=Math.round(((i+1)/keys.length)*100)+'%';
+    log.innerHTML+='<div class="log-ok">\u2713 '+fn+' <span style="color:var(--t3)">('+rows.length+' registros)</span></div>';
+    i++;
+    setTimeout(processNext,10);
+  }
+  processNext();
+}
+
+function goStep(n){
+  var panels=document.querySelectorAll('.panel');
+  var steps=document.querySelectorAll('.s-step');
+  for(var i=0;i<panels.length;i++)panels[i].classList.toggle('active',i===n-1);
+  for(var j=0;j<steps.length;j++){steps[j].classList.toggle('active',j===n-1);steps[j].classList.toggle('done',j<n-1)}
+  window.scrollTo(0,0);
+}
+
+function restart(){
+  allRows=headers=cfg=null;dupChoice='first';
+  $('filePill').style.display='none';$('btn1').disabled=true;$('fileInput').value='';
+  $('folderName').value='';
+  $('hFolder').textContent='\uD83D\uDCC1 Listados nominales - ...';
+  $('progBar').style.width='0%';$('logArea').innerHTML='';$('doneSec').style.display='none';
+  goStep(1);
+}
+</script>
+</body>
+</html>
