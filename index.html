@@ -822,14 +822,12 @@ function runSplit(){
       for(var s=0;s<skeys.length;s++){
         var shName=truncSheetName(skeys[s]);
         var sRows=sortRows(subGroups[skeys[s]],cfg.sortCol,cfg.cols);
-        var data=buildRowData(sRows,cfg.cols);
-        var ws=buildWorksheet(data,cfg.cols);
+        var ws=buildWorksheet(sRows,cfg.cols);
         XLSX.utils.book_append_sheet(wb2,ws,shName);
       }
     } else {
       var sorted=sortRows(grpRows,cfg.sortCol,cfg.cols);
-      var data=buildRowData(sorted,cfg.cols);
-      var ws=buildWorksheet(data,cfg.cols);
+      var ws=buildWorksheet(sorted,cfg.cols);
       XLSX.utils.book_append_sheet(wb2,ws,'Listado');
     }
     folder.file(fn,XLSX.write(wb2,{bookType:'xlsx',type:'array'}));
@@ -868,8 +866,7 @@ function runUnify(){
         : unifyFiles[f].rows.slice();
       srcRows=dedupRows(srcRows,cfg.idCol,cfg.dupMode);
       var sorted=sortRows(srcRows,cfg.sortCol,cfg.cols);
-      var data=buildRowData(sorted,cfg.cols);
-      var ws=buildWorksheet(data,cfg.cols);
+      var ws=buildWorksheet(sorted,cfg.cols);
       var shName=truncSheetName(unifyFiles[f].name.replace(/\.[^.]+$/,''));
       XLSX.utils.book_append_sheet(wb2,ws,shName);
       bar.style.width=Math.round(((f+1)/unifyFiles.length)*100)+'%';
@@ -885,8 +882,7 @@ function runUnify(){
       var sk=skeys[si];
       var shName=truncSheetName(sk);
       var sorted=sortRows(groups[sk],cfg.sortCol,cfg.cols);
-      var data=buildRowData(sorted,cfg.cols);
-      var ws=buildWorksheet(data,cfg.cols);
+      var ws=buildWorksheet(sorted,cfg.cols);
       XLSX.utils.book_append_sheet(wb2,ws,shName);
       bar.style.width=Math.round(((si+1)/skeys.length)*100)+'%';
       log.innerHTML+='<div class="log-ok">&#10003; Hoja: '+esc(shName)+' ('+sorted.length+' filas)</div>';
@@ -896,8 +892,7 @@ function runUnify(){
     nextSheet();
   } else {
     var sorted=sortRows(deduped,cfg.sortCol,cfg.cols);
-    var data=buildRowData(sorted,cfg.cols);
-    var ws=buildWorksheet(data,cfg.cols);
+    var ws=buildWorksheet(sorted,cfg.cols);
     XLSX.utils.book_append_sheet(wb2,ws,'Unificado');
     bar.style.width='100%';
     log.innerHTML+='<div class="log-ok">&#10003; Hoja "Unificado" ('+sorted.length+' filas)</div>';
@@ -952,34 +947,58 @@ function sortRows(rows,sortCol,cols){
 }
 
 function buildRowData(rows,cols){
-  return rows.map(function(r){
-    var o={};
-    for(var i=0;i<cols.length;i++)o[cols[i]]=r[cols[i]]!==undefined?r[cols[i]]:'';
-    for(var j=0;j<customCols.length;j++)o[customCols[j].label]='';
-    return o;
-  });
+  // returns plain arrays; used only internally before buildWorksheet
+  return rows;
 }
 
-function buildWorksheet(data,cols){
+function buildWorksheet(rows,cols){
+  // Build header row
   var allCols=cols.slice();
   for(var j=0;j<customCols.length;j++)allCols.push(customCols[j].label);
-  var ws=XLSX.utils.json_to_sheet(data,{header:allCols});
 
-  // Add dropdown validations for custom cols
-  if(!ws['!dataValidations'])ws['!dataValidations']=[];
-  var numDataRows=data.length;
-  for(var j=0;j<customCols.length;j++){
-    var cc=customCols[j];
-    if(cc.type==='dropdown'&&cc.options.length){
-      var colIdx=allCols.indexOf(cc.label);
-      if(colIdx<0)continue;
-      var colLetter=XLSX.utils.encode_col(colIdx);
-      ws['!dataValidations'].push({
-        sqref:colLetter+'2:'+colLetter+(numDataRows+1),
-        type:'list',
-        formula1:'"'+cc.options.join(',').replace(/"/g,'""')+'"',
-        showDropDown:false
-      });
+  // Build AOA (array of arrays) — guarantees every column appears even if empty
+  var aoa=[allCols];
+  for(var i=0;i<rows.length;i++){
+    var r=rows[i];
+    var row=[];
+    for(var c=0;c<allCols.length;c++){
+      var isCustom=c>=cols.length;
+      row.push(isCustom?'': (r[allCols[c]]!==undefined?r[allCols[c]]:''));
+    }
+    aoa.push(row);
+  }
+  var ws=XLSX.utils.aoa_to_sheet(aoa);
+
+  // Set column widths (auto-size estimate)
+  ws['!cols']=allCols.map(function(h){return{wch:Math.max(10,Math.min(40,String(h).length+4))}});
+
+  // Dropdown validations via !validations (SheetJS Pro format for xlsx)
+  var numDataRows=rows.length;
+  if(numDataRows>0){
+    if(!ws['!validations'])ws['!validations']=[];
+    for(var j=0;j<customCols.length;j++){
+      var cc=customCols[j];
+      if(cc.type==='dropdown'&&cc.options.length){
+        var colIdx=cols.length+j;
+        var colLetter=XLSX.utils.encode_col(colIdx);
+        // Write the options to a hidden list in the sheet and reference via formula
+        // SheetJS community: inline list string is the supported method
+        var listStr=cc.options.map(function(o){return o.replace(/,/g,';')}).join(',');
+        ws['!validations'].push({
+          ref:colLetter+'2:'+colLetter+(numDataRows+1),
+          t:'list',
+          sqref:colLetter+'2:'+colLetter+(numDataRows+1),
+          type:'list',
+          operator:'between',
+          formula1:'"'+listStr+'"',
+          formula2:'',
+          showErrorMessage:true,
+          errorTitle:'Valor no v\u00e1lido',
+          error:'Seleccion\u00e1 una opci\u00f3n de la lista.',
+          showDropDown:false,
+          allowBlank:true
+        });
+      }
     }
   }
   return ws;
