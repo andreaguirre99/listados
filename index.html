@@ -319,8 +319,13 @@ function showSplitConfig(){
     +'<label class="radio-lbl" onclick="setSplitStruct(this,\'sheets\')">'
     +'<input type="radio" name="struct" value="sheets"> <div class="radio-lbl-text"><div>M&#250;ltiples hojas por archivo</div><div class="sub">Cada valor de agrupamiento 1 = un archivo. Dentro, una hoja por cada valor de una tercera variable.</div></div></label>'
     +'</div></div>'
-    +'<div id="sheetVarWrap" style="display:none" class="field"><label>Variable para dividir en hojas (dentro de cada archivo)</label>'
-    +'<select id="sheetVar">'+selOpts+'</select></div>'
+    +'<div id="sheetVarWrap" style="display:none">'
+    +'<div class="field"><label>Variable para dividir en hojas (dentro de cada archivo)</label>'
+    +'<select id="sheetVar" onchange="updateSheetNameHint()">'+selOpts+'</select></div>'
+    +'<div class="field"><label>Prefijo del nombre de hoja <span style="font-weight:400;color:var(--t3)">(opcional)</span></label>'
+    +'<input type="text" id="sheetPrefix" placeholder="ej: Turno &mdash; dej&#225; vac&#237;o para usar solo el valor" autocomplete="off" oninput="updateSheetNameHint()">'
+    +'<div class="mono-hint" id="hSheet">Hoja: [valor de la variable]</div>'
+    +'</div></div>'
     +'<div class="mono-hint" id="hFile">&#128196; Listado - [grupo1].xlsx</div></div>'
 
     +'<div class="card"><div class="card-title">Campos a incluir</div>'
@@ -353,6 +358,16 @@ function setSplitStruct(lbl,val){
   lbl.classList.add('on');
   document.getElementById('sheetVarWrap').style.display=(val==='sheets'?'block':'none');
   updateSplitHints();
+  updateSheetNameHint();
+}
+
+function updateSheetNameHint(){
+  var el=document.getElementById('hSheet');
+  if(!el)return;
+  var prefix=(document.getElementById('sheetPrefix')||{}).value||'';
+  var varEl=document.getElementById('sheetVar');
+  var varName=varEl?varEl.options[varEl.selectedIndex].text:'[variable]';
+  el.textContent='Hoja: '+(prefix?prefix+' - ':'')+'[valor de '+varName+']';
 }
 
 function updateSplitHints(){
@@ -380,6 +395,7 @@ function showSplitCustomCols(){
   if(!document.getElementById('g1').value){alert('Seleccion&#225; la variable de agrupamiento 1.');return}
   var structVal=document.querySelector('input[name="struct"]:checked').value;
   var sheetVar=structVal==='sheets'?document.getElementById('sheetVar').value:'';
+  var sheetPrefixEl=document.getElementById('sheetPrefix');
   splitCfg={
     folderName:fn,
     idCol:document.getElementById('idCol').value,
@@ -387,6 +403,7 @@ function showSplitCustomCols(){
     g2:document.getElementById('g2').value,
     struct:structVal,
     sheetVar:sheetVar,
+    sheetPrefix:sheetPrefixEl?sheetPrefixEl.value.trim():'',
     cols:selCols('colsGrid'),
     sortCol:document.getElementById('sortCol').value,
     dupMode:dupChoice
@@ -847,7 +864,8 @@ function runSplit(){
       var subGroups=groupBy(grpRows,cfg.sheetVar);
       var skeys=Object.keys(subGroups).sort();
       for(var s=0;s<skeys.length;s++){
-        var shName=truncSheetName(skeys[s]);
+        var rawShName=cfg.sheetPrefix?cfg.sheetPrefix+' - '+skeys[s]:skeys[s];
+        var shName=truncSheetName(rawShName);
         var sRows=sortRows(subGroups[skeys[s]],cfg.sortCol,cfg.cols);
         var ws=buildWorksheetData(sRows,cfg.cols);
         XLSX.utils.book_append_sheet(wb2,ws,shName);
@@ -858,7 +876,7 @@ function runSplit(){
       XLSX.utils.book_append_sheet(wb2,ws,'Listado');
     }
     var xlsxBuf=XLSX.write(wb2,{bookType:'xlsx',type:'array'});
-    patchDropdowns(xlsxBuf,cfg.cols,grpRows.length).then(function(finalBuf){
+    patchDropdowns(xlsxBuf,cfg.cols).then(function(finalBuf){
       targetFolder.file(fn,finalBuf);
       bar.style.width=Math.round(((i+1)/keys.length)*100)+'%';
       log.innerHTML+='<div class="log-ok">&#10003; '+esc(fn)+' <span style="color:var(--t3)">('+grpRows.length+' filas)</span></div>';
@@ -915,7 +933,7 @@ function runUnify(){
   bar.style.width='80%';
 
   var xlsxBuf=XLSX.write(wb2,{bookType:'xlsx',type:'array'});
-  patchDropdowns(xlsxBuf,cfg.cols,totalRows).then(function(finalBuf){
+  patchDropdowns(xlsxBuf,cfg.cols).then(function(finalBuf){
     bar.style.width='100%';
     var blob=new Blob([finalBuf],{type:'application/octet-stream'});
     var url=URL.createObjectURL(blob);
@@ -969,25 +987,9 @@ function sortRows(rows,sortCol,cols){
   });
 }
 
-function patchDropdowns(xlsxBuf,cols,numDataRows){
+function patchDropdowns(xlsxBuf,cols){
     var dropCols=customCols.filter(function(cc){return cc.type==='dropdown'&&cc.options.length>0});
     if(!dropCols.length) return Promise.resolve(new Uint8Array(xlsxBuf));
-
-    var validationXml='<dataValidations count="'+dropCols.length+'">';
-    for(var j=0;j<customCols.length;j++){
-      var cc=customCols[j];
-      if(cc.type!=='dropdown'||!cc.options.length)continue;
-      var colIdx=cols.length+j;
-      var colLetter=XLSX.utils.encode_col(colIdx);
-      var sqref=colLetter+'2:'+colLetter+(numDataRows+1);
-      var listStr=cc.options.map(function(o){
-        return o.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      }).join(',');
-      validationXml+='<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1" sqref="'+sqref+'">';
-      validationXml+='<formula1>&quot;'+listStr+'&quot;</formula1>';
-      validationXml+='</dataValidation>';
-    }
-    validationXml+='</dataValidations>';
 
     return JSZip.loadAsync(xlsxBuf).then(function(zip){
       var sheetFiles=Object.keys(zip.files).filter(function(p){
@@ -995,8 +997,37 @@ function patchDropdowns(xlsxBuf,cols,numDataRows){
       });
       return Promise.all(sheetFiles.map(function(path){
         return zip.file(path).async('string').then(function(xml){
+          // Count actual data rows from the dimension ref or row elements
+          var actualRows=0;
+          var dimMatch=xml.match(/dimension ref="[A-Z]+1:[A-Z]+(\d+)"/);
+          if(dimMatch){
+            actualRows=parseInt(dimMatch[1])-1; // subtract header row
+          } else {
+            // fallback: count <row> elements minus 1 for header
+            var rowMatches=xml.match(/<row /g);
+            actualRows=rowMatches?Math.max(0,rowMatches.length-1):0;
+          }
+          if(actualRows<=0){return;} // no data rows — don't add validation
+
+          // Build per-sheet validationXml with correct sqref
+          var vXml='<dataValidations count="'+dropCols.length+'">';
+          for(var j=0;j<customCols.length;j++){
+            var cc=customCols[j];
+            if(cc.type!=='dropdown'||!cc.options.length)continue;
+            var colIdx=cols.length+j;
+            var colLetter=XLSX.utils.encode_col(colIdx);
+            var sqref=colLetter+'2:'+colLetter+(actualRows+1);
+            var listStr=cc.options.map(function(o){
+              return o.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+            }).join(',');
+            vXml+='<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1" sqref="'+sqref+'">';
+            vXml+='<formula1>&quot;'+listStr+'&quot;</formula1>';
+            vXml+='</dataValidation>';
+          }
+          vXml+='</dataValidations>';
+
           xml=xml.replace(/<dataValidations[\s\S]*?<\/dataValidations>/g,'');
-          xml=xml.replace('</worksheet>',validationXml+'</worksheet>');
+          xml=xml.replace('</worksheet>',vXml+'</worksheet>');
           zip.file(path,xml);
         });
       })).then(function(){
