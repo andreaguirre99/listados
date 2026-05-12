@@ -830,7 +830,8 @@ function runSplit(){
     var grpRows=groups[k];
     var g2v=cfg.g2&&grpRows[0]?grpRows[0][cfg.g2]:'';
     var fn=(cfg.g2&&g2v?'Listado - '+k+' - '+g2v:'Listado - '+k)+'.xlsx';
-    var targetFolder=useSubfolders?rootFolder.folder(sanitizeFolderName(k)):rootFolder;
+    var folderBaseName=sanitizeFolderName(cfg.g2&&g2v?'Listados - '+k+' - '+g2v:'Listados - '+k);
+    var targetFolder=useSubfolders?rootFolder.folder(folderBaseName):rootFolder;
     var wb2=XLSX.utils.book_new();
     if(cfg.struct==='sheets'&&cfg.sheetVar){
       var subGroups=groupBy(grpRows,cfg.sheetVar);
@@ -958,56 +959,7 @@ function sortRows(rows,sortCol,cols){
   });
 }
 
-// Patch all sheets in an xlsx buffer to add dropdown validations via raw XML
 function patchDropdowns(xlsxBuf,cols,numDataRows){
-  var dropCols=customCols.filter(function(cc){return cc.type==='dropdown'&&cc.options.length>0});
-  if(!dropCols.length){
-    return Promise.resolve(new Uint8Array(xlsxBuf));
-  }
-  // Build validation XML fragment (same for all sheets)
-  var validationXml='<dataValidations count="'+dropCols.length+'">';
-  for(var j=0;j<customCols.length;j++){
-    var cc=customCols[j];
-    if(cc.type!=='dropdown'||!cc.options.length)continue;
-    var colIdx=cols.length+j;
-    var colLetter=XLSX.utils.encode_col(colIdx);
-    var sqref=colLetter+'2:'+colLetter+(numDataRows+1);
-    // Escape XML in option values; commas separate options in the list formula
-    var listStr=cc.options.map(function(o){
-      return o.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    }).join(',');
-    validationXml+='<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1" sqref="'+sqref+'">';
-    validationXml+='<formula1>&quot;'+listStr+'&quot;</formula1>';
-    validationXml+='</dataValidation>';
-  }
-  validationXml+='</dataValidations>';
-
-  return JSZip.loadAsync(xlsxBuf).then(function(zip){
-    var sheetFiles=Object.keys(zip.files).filter(function(p){
-      return /^xl\/worksheets\/sheet\d+\.xml$/.test(p);
-    });
-    var promises=sheetFiles.map(function(path){
-      return zip.file(path).async('string').then(function(xml){
-        // Remove existing dataValidations if any, then inject before </worksheet>
-        xml=xml.replace(/<dataValidations[\s\S]*?<\/dataValidations>/,'');
-        xml=xml.replace('</worksheet>',validationXml+'</worksheet>');
-        zip.file(path,xml);
-      });
-    });
-    return Promise.all(promises);
-  }).then(function(zip_ref){
-    // zip_ref is array of undefined; we need the zip itself
-    // Re-grab it via closure — JSZip mutates in place in the .then chain
-    // Actually loadAsync resolves to the zip object; we need to capture it
-    // Fix: restructure to capture zip
-    return xlsxBuf; // fallback — see below for correct version
-  });
-}
-
-// Correct version that captures zip:
-(function(){
-  var _orig = patchDropdowns;
-  patchDropdowns = function(xlsxBuf,cols,numDataRows){
     var dropCols=customCols.filter(function(cc){return cc.type==='dropdown'&&cc.options.length>0});
     if(!dropCols.length) return Promise.resolve(new Uint8Array(xlsxBuf));
 
@@ -1041,8 +993,7 @@ function patchDropdowns(xlsxBuf,cols,numDataRows){
         return zip.generateAsync({type:'uint8array',compression:'DEFLATE'});
       });
     });
-  };
-})();
+}
 
 // Build an XLSX worksheet object from rows (filtered to cols + custom cols)
 // Dropdowns are NOT added here — they require XML patching (see patchDropdowns)
