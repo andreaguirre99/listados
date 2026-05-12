@@ -173,7 +173,7 @@ tbody tr:hover td{background:var(--s2)}
 
 <script>
 // ─── State ───────────────────────────────────────────────────────────────────
-var mode = null; // 'split' | 'unify'
+var mode = null; // 'split' | 'unify' | 'merge'
 var step = 0;
 var splitData = { rows:[], headers:[] };
 var unifyFiles = []; // [{name, rows, headers}]
@@ -182,16 +182,19 @@ var unifyCfg = {};
 var customCols = []; // [{id, label, type:'open'|'dropdown', options:[]}]
 var dupChoice = 'first';
 var customColCounter = 0;
+var mergeFiles = []; // [{name,rows,headers}]
+var mergeCfg = {};
 
 // ─── Nav config ──────────────────────────────────────────────────────────────
 var SPLIT_STEPS = ['Modo','Cargar archivo','Configurar','Columnas extra','Revisar','Descargar'];
 var UNIFY_STEPS = ['Modo','Cargar archivos','Configurar','Columnas extra','Revisar','Descargar'];
+var MERGE_STEPS = ['Modo','Cargar archivos','Configurar','Revisar','Descargar'];
 
 function renderNav(){
-  var steps = mode==='unify' ? UNIFY_STEPS : SPLIT_STEPS;
+  var steps = mode==='unify' ? UNIFY_STEPS : mode==='merge' ? MERGE_STEPS : SPLIT_STEPS;
   var html='';
   if(mode){
-    html+='<div class="s-section">'+(mode==='split'?'División':'Unificación')+'</div>';
+    html+='<div class="s-section">'+(mode==='split'?'División':mode==='merge'?'Combinar':'Unificación')+'</div>';
   }
   for(var i=0;i<steps.length;i++){
     var cls='s-step'+(step===i?' active':step>i?' done':'');
@@ -229,6 +232,7 @@ function selectMode(m){
   mode=m;
   document.getElementById('mc-split').classList.toggle('selected',m==='split');
   document.getElementById('mc-unify').classList.toggle('selected',m==='unify');
+  document.getElementById('mc-merge').classList.toggle('selected',m==='merge');
   document.getElementById('btnMode').disabled=false;
 }
 
@@ -236,7 +240,8 @@ function goAfterMode(){
   if(!mode)return;
   step=1;
   if(mode==='split') showSplitUpload();
-  else showUnifyUpload();
+  else if(mode==='unify') showUnifyUpload();
+  else showMergeUpload();
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1085,6 +1090,383 @@ function triggerDownload(url,filename){
 
 function esc(s){
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// MERGE FLOW
+// ═══════════════════════════════════════════════════════════════════
+
+function showMergeUpload(){
+  step=1; mergeFiles=[];
+  show('<div class="panel active">'
+    +'<div class="p-tag">Combinar &middot; Paso 1 de 4</div>'
+    +'<div class="p-title">Cargar archivos</div>'
+    +'<div class="alert alert-info"><span class="a-ic">&#9432;</span><div>Carg&#225; el Excel <strong>madre</strong> y uno o m&#225;s archivos de los que quieras traer columnas. Despu&#233;s vas a poder indicar cu&#225;l es el madre.</div></div>'
+    +'<div class="upload-zone" id="dz"><div class="u-icon">&#128194;</div>'
+    +'<div class="u-main">Arrastr&#225; los archivos o hac&#233; clic para buscarlos</div>'
+    +'<div class="u-sub">.xlsx &middot; .xls &middot; .csv &middot; M&#237;nimo 2 archivos</div>'
+    +'<input type="file" id="fi" accept=".xlsx,.xls,.csv" multiple style="display:none"></div>'
+    +'<div class="file-list" id="fileList"></div>'
+    +'<div class="actions"><button class="btn btn-out" onclick="showHome()">&larr; Volver</button>'
+    +'<button class="btn btn-dk" id="btnMU" disabled onclick="showMergeConfig()">Continuar &rarr;</button></div>'
+    +'</div>');
+  document.getElementById('dz').onclick=function(){document.getElementById('fi').click()};
+  document.getElementById('dz').ondragover=function(e){e.preventDefault();this.classList.add('drag')};
+  document.getElementById('dz').ondragleave=function(){this.classList.remove('drag')};
+  document.getElementById('dz').ondrop=function(e){e.preventDefault();this.classList.remove('drag');loadMergeFiles(e.dataTransfer.files)};
+  document.getElementById('fi').onchange=function(e){loadMergeFiles(e.target.files)};
+}
+
+function loadMergeFiles(files){
+  var arr=Array.prototype.slice.call(files);
+  var done=0;
+  arr.forEach(function(file){
+    var r=new FileReader();
+    r.onload=function(e){
+      var wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+      var ws=wb.Sheets[wb.SheetNames[0]];
+      var rows=XLSX.utils.sheet_to_json(ws,{defval:''});
+      var headers=rows.length?Object.keys(rows[0]):[];
+      mergeFiles.push({name:file.name,rows:rows,headers:headers});
+      done++;
+      if(done===arr.length) renderMergeFileList();
+    };
+    r.readAsArrayBuffer(file);
+  });
+}
+
+function renderMergeFileList(){
+  var html='';
+  for(var i=0;i<mergeFiles.length;i++){
+    var f=mergeFiles[i];
+    html+='<div class="file-item"><div class="fp-ic">&#128196;</div>'
+      +'<div class="file-item-name">'+esc(f.name)+'</div>'
+      +'<div class="file-item-meta">'+f.rows.length.toLocaleString()+' filas &middot; '+f.headers.length+' cols</div>'
+      +'<div class="file-item-del" onclick="removeMergeFile('+i+')">&#10005;</div></div>';
+  }
+  document.getElementById('fileList').innerHTML=html;
+  document.getElementById('btnMU').disabled=mergeFiles.length<2;
+}
+
+function removeMergeFile(i){
+  mergeFiles.splice(i,1);
+  renderMergeFileList();
+}
+
+function showMergeConfig(){
+  if(mergeFiles.length<2){alert('Necesit&#225;s al menos 2 archivos.');return}
+  step=2;
+
+  // Mother selector
+  var motherOpts=mergeFiles.map(function(f,i){
+    return '<option value="'+i+'">'+esc(f.name)+'</option>';
+  }).join('');
+
+  show('<div class="panel active">'
+    +'<div class="p-tag">Combinar &middot; Paso 2 de 4</div>'
+    +'<div class="p-title">Configurar combinaci&#243;n</div>'
+
+    +'<div class="card"><div class="card-title">Archivo madre</div>'
+    +'<div class="field"><label for="motherSel">&#191;Cu&#225;l es el Excel madre?</label>'
+    +'<select id="motherSel" onchange="renderMergeKeyAndCols()">'+motherOpts+'</select>'
+    +'<div class="hint">Las filas del madre se conservan siempre. Las columnas nuevas se agregan desde los otros archivos.</div>'
+    +'</div></div>'
+
+    +'<div id="mergeKeySection"></div>'
+    +'<div id="mergeColSection"></div>'
+    +'<div id="mergeMultiSection"></div>'
+
+    +'<div class="actions">'
+    +'<button class="btn btn-out" onclick="showMergeUpload()">&larr; Atr&#225;s</button>'
+    +'<button class="btn btn-dk" onclick="saveMergeConfig()">Continuar &rarr;</button>'
+    +'</div></div>');
+
+  renderMergeKeyAndCols();
+}
+
+function renderMergeKeyAndCols(){
+  var motherIdx=parseInt(document.getElementById('motherSel').value)||0;
+  var mother=mergeFiles[motherIdx];
+  var children=mergeFiles.filter(function(_,i){return i!==motherIdx});
+
+  // Key mapping section
+  var keyHtml='<div class="card"><div class="card-title">Columna clave para el merge</div>'
+    +'<div class="hint" style="margin-bottom:12px">Seleccion&#225; la columna clave en cada archivo. Los valores de estas columnas se van a usar para emparejar filas.</div>';
+
+  var motherKeyOpts=mother.headers.map(function(h){return'<option value="'+esc(h)+'">'+esc(h)+'</option>'}).join('');
+  keyHtml+='<div class="field"><label>Clave en <strong>'+esc(mother.name)+'</strong> (madre)</label>'
+    +'<select id="motherKey">'+motherKeyOpts+'</select></div>';
+
+  for(var ci=0;ci<children.length;ci++){
+    var ch=children[ci];
+    var chKeyOpts=ch.headers.map(function(h){return'<option value="'+esc(h)+'">'+esc(h)+'</option>'}).join('');
+    // Try to auto-select matching header
+    var autoMatch=ch.headers.indexOf(mother.headers[0]);
+    keyHtml+='<div class="field"><label>Clave en <strong>'+esc(ch.name)+'</strong></label>'
+      +'<select id="childKey_'+ci+'">'+chKeyOpts+'</select></div>';
+  }
+  keyHtml+='</div>';
+  document.getElementById('mergeKeySection').innerHTML=keyHtml;
+
+  // Columns to bring in
+  var colHtml='<div class="card"><div class="card-title">Columnas a agregar al madre</div>'
+    +'<div class="hint" style="margin-bottom:10px">Seleccion&#225; qu&#233; columnas de cada archivo hijo quer&#233;s incorporar. Las que ya existen en el madre se renombrar&#225;n con <em>_2</em>.</div>';
+
+  for(var ci=0;ci<children.length;ci++){
+    var ch=children[ci];
+    // Exclude key col by default (will be recalculated on generate)
+    colHtml+='<div style="font-size:12px;font-weight:600;color:var(--t2);margin:10px 0 6px">'+esc(ch.name)+'</div>'
+      +'<div class="cols-grid" id="childCols_'+ci+'">';
+    for(var hi=0;hi<ch.headers.length;hi++){
+      var h=ch.headers[hi];
+      var clash=mother.headers.indexOf(h)>=0;
+      colHtml+='<label class="col-lbl on" id="lbl_c'+ci+'_h'+hi+'">'
+        +'<input type="checkbox" checked value="'+esc(h)+'"> '
+        +esc(h)+(clash?'<span class="partial-badge" title="Ya existe en el madre, se renombrar&#225; como '+esc(h)+'_2">&#8597; renombra</span>':'')
+        +'</label>';
+    }
+    colHtml+='</div>';
+  }
+  colHtml+='</div>';
+  document.getElementById('mergeColSection').innerHTML=colHtml;
+
+  // Multi-match handling
+  var multiHtml='<div class="card"><div class="card-title">Cuando hay m&#250;ltiples matches</div>'
+    +'<div class="radio-group">'
+    +'<label class="radio-lbl on" onclick="setMergeMulti(this,\'first\')">'
+    +'<input type="radio" name="mmatch" value="first" checked>'
+    +'<div class="radio-lbl-text"><div>Conservar primera coincidencia</div><div class="sub">Toma el primer registro del hijo que coincide.</div></div></label>'
+    +'<label class="radio-lbl" onclick="setMergeMulti(this,\'last\')">'
+    +'<input type="radio" name="mmatch" value="last">'
+    +'<div class="radio-lbl-text"><div>Conservar &#250;ltima coincidencia</div><div class="sub">Toma el &#250;ltimo registro del hijo que coincide.</div></div></label>'
+    +'<label class="radio-lbl" onclick="setMergeMulti(this,\'concat\')">'
+    +'<input type="radio" name="mmatch" value="concat">'
+    +'<div class="radio-lbl-text"><div>Concatenar valores</div><div class="sub">Une todos los valores con " / " en una sola celda.</div></div></label>'
+    +'</div></div>';
+  document.getElementById('mergeMultiSection').innerHTML=multiHtml;
+}
+
+function setMergeMulti(lbl,val){
+  document.querySelectorAll('input[name="mmatch"]').forEach(function(r){r.closest('.radio-lbl').classList.remove('on')});
+  lbl.classList.add('on');
+}
+
+function saveMergeConfig(){
+  var motherIdx=parseInt(document.getElementById('motherSel').value)||0;
+  var mother=mergeFiles[motherIdx];
+  var children=mergeFiles.filter(function(_,i){return i!==motherIdx});
+  var childIndices=mergeFiles.map(function(_,i){return i}).filter(function(i){return i!==motherIdx});
+
+  var motherKey=document.getElementById('motherKey').value;
+  if(!motherKey){alert('Seleccion&#225; la columna clave del madre.');return}
+
+  var childConfigs=[];
+  for(var ci=0;ci<children.length;ci++){
+    var childKey=document.getElementById('childKey_'+ci).value;
+    if(!childKey){alert('Seleccion&#225; la columna clave de "'+children[ci].name+'".');return}
+    var selInputs=document.getElementById('childCols_'+ci).querySelectorAll('input:checked');
+    var selCols=Array.prototype.slice.call(selInputs).map(function(x){return x.value});
+    if(!selCols.length){alert('Seleccion&#225; al menos una columna de "'+children[ci].name+'".');return}
+    childConfigs.push({
+      fileIdx:childIndices[ci],
+      name:children[ci].name,
+      key:childKey,
+      cols:selCols
+    });
+  }
+
+  var multiMatch=document.querySelector('input[name="mmatch"]:checked').value;
+
+  mergeCfg={
+    motherIdx:motherIdx,
+    motherKey:motherKey,
+    children:childConfigs,
+    multiMatch:multiMatch
+  };
+
+  showMergeReview();
+}
+
+function showMergeReview(){
+  step=3;
+  var mother=mergeFiles[mergeCfg.motherIdx];
+
+  // Build lookup maps and detect multi-matches
+  var warnings=[];
+  var multiCount=0;
+  for(var ci=0;ci<mergeCfg.children.length;ci++){
+    var cc=mergeCfg.children[ci];
+    var childFile=mergeFiles[cc.fileIdx];
+    var lookup={};
+    for(var r=0;r<childFile.rows.length;r++){
+      var k=String(childFile.rows[r][cc.key]||'').trim().toLowerCase();
+      if(!lookup[k]) lookup[k]=[];
+      lookup[k].push(r);
+    }
+    // Count multi-matches against mother
+    var multi=0;
+    for(var m=0;m<mother.rows.length;m++){
+      var mk=String(mother.rows[m][mergeCfg.motherKey]||'').trim().toLowerCase();
+      if(lookup[mk]&&lookup[mk].length>1) multi++;
+    }
+    if(multi>0){
+      multiCount+=multi;
+      warnings.push('<strong>'+esc(cc.name)+'</strong>: '+multi+' fila(s) del madre tienen m&#250;ltiples coincidencias.');
+    }
+  }
+
+  // Coverage: how many mother rows have at least one match in any child
+  var anyLookup={};
+  for(var ci=0;ci<mergeCfg.children.length;ci++){
+    var cc=mergeCfg.children[ci];
+    var childFile=mergeFiles[cc.fileIdx];
+    for(var r=0;r<childFile.rows.length;r++){
+      var k=String(childFile.rows[r][cc.key]||'').trim().toLowerCase();
+      anyLookup[k]=true;
+    }
+  }
+  var matched=0,unmatched=0;
+  for(var m=0;m<mother.rows.length;m++){
+    var mk=String(mother.rows[m][mergeCfg.motherKey]||'').trim().toLowerCase();
+    if(anyLookup[mk]) matched++; else unmatched++;
+  }
+
+  var warnHtml='';
+  if(warnings.length){
+    warnHtml='<div class="alert alert-warn"><span class="a-ic">&#9888;</span><div>'
+      +'<strong>Multiples coincidencias detectadas</strong> &mdash; tratamiento: '
+      +(mergeCfg.multiMatch==='first'?'primera ocurrencia':mergeCfg.multiMatch==='last'?'&#250;ltima ocurrencia':'concatenar con " / "')
+      +'<ul style="margin-top:6px;padding-left:16px">'+warnings.map(function(w){return'<li>'+w+'</li>'}).join('')+'</ul>'
+      +'</div></div>';
+  } else {
+    warnHtml='<div class="alert alert-ok"><span class="a-ic">&#10003;</span> Sin coincidencias m&#250;ltiples.</div>';
+  }
+
+  // Columns summary
+  var colSummaryRows='';
+  for(var ci=0;ci<mergeCfg.children.length;ci++){
+    var cc=mergeCfg.children[ci];
+    for(var j=0;j<cc.cols.length;j++){
+      var colName=cc.cols[j];
+      var clash=mother.headers.indexOf(colName)>=0;
+      var finalName=clash?colName+'_2':colName;
+      colSummaryRows+='<tr><td class="mono">'+esc(finalName)+(clash?'<span class="partial-badge">renombrada</span>':'')+'</td><td style="font-size:12px;color:var(--t3)">'+esc(cc.name)+'</td></tr>';
+    }
+  }
+
+  var totalNewCols=mergeCfg.children.reduce(function(acc,cc){return acc+cc.cols.length},0);
+
+  show('<div class="panel active">'
+    +'<div class="p-tag">Combinar &middot; Paso 3 de 4</div>'
+    +'<div class="p-title">Revisar y confirmar</div>'
+    +warnHtml
+    +'<div class="metrics">'
+    +'<div class="metric"><div class="m-lbl">Filas del madre</div><div class="m-val">'+mother.rows.length.toLocaleString()+'</div></div>'
+    +'<div class="metric"><div class="m-lbl">Con match</div><div class="m-val" style="color:var(--ok)">'+matched.toLocaleString()+'</div></div>'
+    +'<div class="metric"><div class="m-lbl">Sin match</div><div class="m-val"'+(unmatched>0?' style="color:var(--warn)"':'')+'>'+unmatched.toLocaleString()+'</div></div>'
+    +'</div>'
+    +'<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--t3);margin-bottom:8px">Columnas a agregar ('+totalNewCols+')</div>'
+    +'<div class="tbl-wrap"><table><thead><tr><th>Columna en resultado</th><th>Origen</th></tr></thead>'
+    +'<tbody>'+colSummaryRows+'</tbody></table></div>'
+    +'<div class="actions" style="margin-top:1.5rem">'
+    +'<button class="btn btn-out" onclick="showMergeConfig()">&larr; Atr&#225;s</button>'
+    +'<button class="btn btn-dk" onclick="runMerge()">Generar archivo &darr;</button>'
+    +'</div></div>');
+}
+
+function runMerge(){
+  step=4;
+  showProgress('Combinar &middot; Paso 4 de 4');
+  var log=document.getElementById('logArea'),bar=document.getElementById('progBar');
+
+  var mother=mergeFiles[mergeCfg.motherIdx];
+  var multiMatch=mergeCfg.multiMatch;
+
+  // Build lookup maps per child: key -> [row objects]
+  var childLookups=[];
+  for(var ci=0;ci<mergeCfg.children.length;ci++){
+    var cc=mergeCfg.children[ci];
+    var childFile=mergeFiles[cc.fileIdx];
+    var lk={};
+    for(var r=0;r<childFile.rows.length;r++){
+      var k=String(childFile.rows[r][cc.key]||'').trim().toLowerCase();
+      if(!lk[k]) lk[k]=[];
+      lk[k].push(childFile.rows[r]);
+    }
+    childLookups.push(lk);
+    log.innerHTML+='<div class="log-ok">&#10003; &#205;ndice creado para '+esc(cc.name)+'</div>';
+  }
+  bar.style.width='20%';
+
+  // Build final column name map (handle clashes with _2)
+  var motherHeaders=mother.headers.slice();
+  var colMaps=[]; // per child: [{original, final}]
+  for(var ci=0;ci<mergeCfg.children.length;ci++){
+    var cc=mergeCfg.children[ci];
+    var used=motherHeaders.slice(); // already used names so far
+    var map=[];
+    for(var j=0;j<cc.cols.length;j++){
+      var orig=cc.cols[j];
+      var final=orig;
+      if(used.indexOf(final)>=0) final=orig+'_2';
+      while(used.indexOf(final)>=0) final=final+'_2'; // edge: triple clash
+      used.push(final);
+      motherHeaders.push(final);
+      map.push({original:orig, final:final});
+    }
+    colMaps.push(map);
+  }
+  bar.style.width='40%';
+
+  // Build result rows
+  var resultRows=[];
+  var unmatchedCount=0;
+  for(var m=0;m<mother.rows.length;m++){
+    var row=Object.assign({},mother.rows[m]);
+    var mk=String(mother.rows[m][mergeCfg.motherKey]||'').trim().toLowerCase();
+    var hasMatch=false;
+
+    for(var ci=0;ci<mergeCfg.children.length;ci++){
+      var cc=mergeCfg.children[ci];
+      var map=colMaps[ci];
+      var matches=childLookups[ci][mk]||[];
+
+      if(matches.length===0){
+        // No match — fill with empty
+        for(var j=0;j<map.length;j++) row[map[j].final]='';
+      } else {
+        hasMatch=true;
+        var resolved=[];
+        if(multiMatch==='first') resolved=[matches[0]];
+        else if(multiMatch==='last') resolved=[matches[matches.length-1]];
+        else resolved=matches; // concat all
+
+        for(var j=0;j<map.length;j++){
+          var vals=resolved.map(function(mr){return String(mr[map[j].original]||'')});
+          row[map[j].final]=multiMatch==='concat'?vals.join(' / '):vals[0];
+        }
+      }
+    }
+    if(!hasMatch) unmatchedCount++;
+    resultRows.push(row);
+  }
+  bar.style.width='75%';
+  log.innerHTML+='<div class="log-ok">&#10003; '+resultRows.length.toLocaleString()+' filas procesadas &middot; '+unmatchedCount+' sin coincidencia</div>';
+
+  // Build worksheet
+  var ws=buildWorksheetData(resultRows, motherHeaders);
+  var wb2=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb2, ws, 'Combinado');
+  var buf=XLSX.write(wb2,{bookType:'xlsx',type:'array'});
+
+  // No custom cols in merge, so no dropdown patching needed
+  var blob=new Blob([buf],{type:'application/octet-stream'});
+  var url=URL.createObjectURL(blob);
+  bar.style.width='100%';
+
+  var outName=mother.name.replace(/\.[^.]+$/,'')+'_combinado.xlsx';
+  showDone('Archivo generado',outName,url,outName);
 }
 
 // ─── Boot ────────────────────────────────────────────────────────────────────
