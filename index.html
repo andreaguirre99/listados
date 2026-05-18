@@ -7,7 +7,8 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@zip.js/zip.js@2.7.44/dist/zip.min.js"></script>
+<script>window.zipjs=null;</script>
+<script src="https://unpkg.com/@zip.js/zip.js@2.7.44/dist/zip.min.js" onload="window.zipjs=zip" onerror="console.warn('zip.js no disponible - contrasenas por archivo deshabilitadas')"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -313,17 +314,27 @@ function patchDropdowns(xlsxBuf,cols){
 
 // addFileToFolder: wraps xlsx in encrypted per-file zip if password given
 function addFileToFolder(folder,baseName,xlsxBytes,filePwd){
-  if(!filePwd){
-    folder.file(baseName+'.xlsx',xlsxBytes);
+  var arr=xlsxBytes instanceof Uint8Array?xlsxBytes:new Uint8Array(xlsxBytes);
+  if(!filePwd||!window.zipjs){
+    // No password or zip.js unavailable — save as plain xlsx
+    folder.file(baseName+'.xlsx',arr);
     return Promise.resolve(baseName+'.xlsx');
   }
   return new Promise(function(resolve,reject){
-    var zw=new zipjs.ZipWriter(new zipjs.Uint8ArrayWriter());
-    var arr=xlsxBytes instanceof Uint8Array?xlsxBytes:new Uint8Array(xlsxBytes);
-    zw.add(baseName+'.xlsx',new zipjs.Uint8ArrayReader(arr),{password:filePwd})
-      .then(function(){return zw.close();})
-      .then(function(buf){folder.file(baseName+'.zip',buf);resolve(baseName+'.zip');})
-      .catch(reject);
+    try{
+      var zw=new window.zipjs.ZipWriter(new window.zipjs.Uint8ArrayWriter());
+      zw.add(baseName+'.xlsx',new window.zipjs.Uint8ArrayReader(arr),{password:filePwd})
+        .then(function(){return zw.close();})
+        .then(function(buf){folder.file(baseName+'.zip',buf);resolve(baseName+'.zip');})
+        .catch(function(e){
+          // Fallback: save without password if encryption fails
+          folder.file(baseName+'.xlsx',arr);
+          resolve(baseName+'.xlsx');
+        });
+    }catch(e){
+      folder.file(baseName+'.xlsx',arr);
+      resolve(baseName+'.xlsx');
+    }
   });
 }
 
@@ -395,9 +406,9 @@ function loadSplitFile(file){
   if(!file)return;
   var r=new FileReader();
   r.onload=function(e){
-    var wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+    var wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:false,dateNF:'DD/MM/YYYY',codepage:1252});
     var ws=wb.Sheets[wb.SheetNames[0]];
-    splitData.rows=XLSX.utils.sheet_to_json(ws,{defval:''});
+    splitData.rows=XLSX.utils.sheet_to_json(ws,{defval:'',raw:false});
     splitData.headers=splitData.rows.length?Object.keys(splitData.rows[0]):[];
     document.getElementById('fpArea').innerHTML='<div class="fp"><div class="fp-ic">&#128196;</div><div>'
       +'<div class="fp-name">'+esc(file.name)+'</div>'
@@ -521,9 +532,9 @@ function loadUnifyFiles(files){
   arr.forEach(function(file){
     var r=new FileReader();
     r.onload=function(e){
-      var wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+      var wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:false,dateNF:'DD/MM/YYYY',codepage:1252});
       var ws=wb.Sheets[wb.SheetNames[0]];
-      var rows=XLSX.utils.sheet_to_json(ws,{defval:''});
+      var rows=XLSX.utils.sheet_to_json(ws,{defval:'',raw:false});
       unifyFiles.push({name:file.name,rows:rows,headers:rows.length?Object.keys(rows[0]):[]});
       if(++done===arr.length)renderUnifyFileList();
     };
@@ -890,9 +901,9 @@ function loadMergeFiles(files){
   arr.forEach(function(file){
     var r=new FileReader();
     r.onload=function(e){
-      var wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+      var wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:false,dateNF:'DD/MM/YYYY',codepage:1252});
       var ws=wb.Sheets[wb.SheetNames[0]];
-      var rows=XLSX.utils.sheet_to_json(ws,{defval:''});
+      var rows=XLSX.utils.sheet_to_json(ws,{defval:'',raw:false});
       mergeFiles.push({name:file.name,rows:rows,headers:rows.length?Object.keys(rows[0]):[]});
       if(++done===arr.length)renderMergeFileList();
     };
