@@ -354,26 +354,76 @@ function patchDropdowns(xlsxBuf,cols){
 }
 
 // addFileToFolder: wraps xlsx in encrypted per-file zip if password given
+// ── ZipCrypto implementation (pure JS, compatible with Windows nativo) ────────
+var _CRC32T=(function(){var t=new Uint32Array(256);for(var i=0;i<256;i++){var c=i;for(var j=0;j<8;j++)c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);t[i]=c;}return t;})();
+function _crc32buf(d){var c=0xFFFFFFFF;for(var i=0;i<d.length;i++)c=(_CRC32T[(c^d[i])&0xFF]^(c>>>8))>>>0;return(c^0xFFFFFFFF)>>>0;}
+function _crc32b(crc,b){return(_CRC32T[(crc^b)&0xFF]^(crc>>>8))>>>0;}
+function _zkeys(pwd){var k=[0x12345678,0x23456789,0x34567890];for(var i=0;i<pwd.length;i++)_zupd(k,pwd.charCodeAt(i));return k;}
+function _zupd(k,b){k[0]=_crc32b(k[0],b);k[1]=(k[1]+(k[0]&0xFF))>>>0;k[1]=(Math.imul(k[1],0x08088405)+1)>>>0;k[2]=_crc32b(k[2],(k[1]>>>24)&0xFF);}
+function _zsb(k){var t=((k[2]&0xFFFF)|2)>>>0;return((t*(t^1))>>>8)&0xFF;}
+function _zenc(k,b){var x=_zsb(k);_zupd(k,b);return(b^x)&0xFF;}
+function _zcrypt(data,pwd,crc){
+  var k=_zkeys(pwd),out=new Uint8Array(12+data.length);
+  for(var i=0;i<11;i++)out[i]=_zenc(k,(Math.random()*256)|0);
+  out[11]=_zenc(k,(crc>>>24)&0xFF);
+  for(var i=0;i<data.length;i++)out[12+i]=_zenc(k,data[i]);
+  return out;
+}
+function _u16(v){return new Uint8Array([v&0xFF,(v>>8)&0xFF]);}
+function _u32(v){v=v>>>0;return new Uint8Array([v&0xFF,(v>>8)&0xFF,(v>>16)&0xFF,(v>>24)&0xFF]);}
+function _cat(arrays){
+  var len=0;for(var i=0;i<arrays.length;i++)len+=arrays[i].length;
+  var out=new Uint8Array(len),pos=0;
+  for(var i=0;i<arrays.length;i++){out.set(arrays[i],pos);pos+=arrays[i].length;}
+  return out;
+}
+function buildZipCrypto(entries,password){
+  // entries: [{name:string, data:Uint8Array}]
+  var now=new Date();
+  var dt=((now.getHours()<<11)|(now.getMinutes()<<5)|((now.getSeconds()/2)|0))&0xFFFF;
+  var dd=(((now.getFullYear()-1980)<<9)|((now.getMonth()+1)<<5)|now.getDate())&0xFFFF;
+  var parts=[],cds=[],offset=0;
+  for(var ei=0;ei<entries.length;ei++){
+    var nm=entries[ei].name;
+    var data=entries[ei].data instanceof Uint8Array?entries[ei].data:new Uint8Array(entries[ei].data);
+    var nameBytes=new TextEncoder().encode(nm);
+    var crc=_crc32buf(data);
+    var enc=_zcrypt(data,password,crc);
+    var lh=_cat([
+      new Uint8Array([0x50,0x4B,0x03,0x04]),
+      _u16(20),_u16(1),_u16(0),_u16(dt),_u16(dd),
+      _u32(crc),_u32(enc.length),_u32(data.length),
+      _u16(nameBytes.length),_u16(0),
+      nameBytes,enc
+    ]);
+    var cd=_cat([
+      new Uint8Array([0x50,0x4B,0x01,0x02]),
+      _u16(20),_u16(20),_u16(1),_u16(0),_u16(dt),_u16(dd),
+      _u32(crc),_u32(enc.length),_u32(data.length),
+      _u16(nameBytes.length),_u16(0),_u16(0),_u16(0),_u16(0),_u32(0),_u32(offset),
+      nameBytes
+    ]);
+    parts.push(lh);cds.push(cd);offset+=lh.length;
+  }
+  var cdBuf=_cat(cds);
+  var eocd=_cat([
+    new Uint8Array([0x50,0x4B,0x05,0x06]),
+    _u16(0),_u16(0),_u16(entries.length),_u16(entries.length),
+    _u32(cdBuf.length),_u32(offset),_u16(0)
+  ]);
+  return _cat([...parts,cdBuf,eocd]);
+}
+
 function addFileToFolder(folder,baseName,xlsxBytes,filePwd){
   var arr=xlsxBytes instanceof Uint8Array?xlsxBytes:new Uint8Array(xlsxBytes);
   if(!filePwd){
     folder.file(baseName+'.xlsx',arr);
     return Promise.resolve(baseName+'.xlsx');
   }
-  // ZipCrypto: compatible con Windows nativo, 7-Zip y WinRAR
-  // JSZip soporta ZipCrypto via password en generateAsync por archivo individual
-  var innerZip=new JSZip();
-  innerZip.file(baseName+'.xlsx',arr);
-  return innerZip.generateAsync({
-    type:'uint8array',
-    compression:'DEFLATE',
-    compressionOptions:{level:6},
-    encryptStrength:0,
-    password:filePwd
-  }).then(function(buf){
-    folder.file(baseName+'.zip',buf);
-    return baseName+'.zip';
-  });
+  // Build ZipCrypto-encrypted inner ZIP (abre en Windows nativo sin software adicional)
+  var innerZip=buildZipCrypto([{name:baseName+'.xlsx',data:arr}],filePwd);
+  folder.file(baseName+'.zip',innerZip);
+  return Promise.resolve(baseName+'.zip');
 }
 
 function showProgress(tag){
