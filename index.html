@@ -278,28 +278,34 @@ function excelSerialToDate(serial){
 }
 
 // Fix mixed date columns: some cells are "YYYY-MM-DD", some are serial numbers
+function formatDateDDMMYYYY(d){
+  var dd=String(d.getDate()).padStart(2,'0');
+  var mm=String(d.getMonth()+1).padStart(2,'0');
+  var yyyy=d.getFullYear();
+  return dd+'/'+mm+'/'+yyyy;
+}
+
 function fixDates(rows){
   if(!rows.length)return rows;
-  // Detect which columns look like dates (have ISO strings or serials)
+  // Detect date columns: contain Date objects OR ISO strings YYYY-MM-DD
   var dateCols={};
-  var isoRe=/^\d{4}-\d{2}-\d{2}$/;
-  var serialRe=/^\d{4,5}$/; // 4-5 digit number = plausible Excel serial (post-1900)
+  var isoRe=/^\d{4}-\d{2}-\d{2}(T.*)?$/;
   rows.forEach(function(r){
     Object.keys(r).forEach(function(k){
-      var v=String(r[k]||'');
-      if(isoRe.test(v)||serialRe.test(v))dateCols[k]=true;
+      var v=r[k];
+      if(v instanceof Date||(typeof v==='string'&&isoRe.test(v)))dateCols[k]=true;
     });
   });
+  if(!Object.keys(dateCols).length)return rows;
   return rows.map(function(r){
     var out=Object.assign({},r);
     Object.keys(dateCols).forEach(function(k){
-      var v=String(out[k]||'');
-      if(isoRe.test(v)){
-        // Convert YYYY-MM-DD -> DD/MM/YYYY
-        var parts=v.split('-');
-        out[k]=parts[2]+'/'+parts[1]+'/'+parts[0];
-      } else if(serialRe.test(v)){
-        out[k]=excelSerialToDate(v);
+      var v=out[k];
+      if(v instanceof Date&&!isNaN(v)){
+        out[k]=formatDateDDMMYYYY(v);
+      } else if(typeof v==='string'&&isoRe.test(v)){
+        var d=new Date(v);
+        if(!isNaN(d))out[k]=formatDateDDMMYYYY(d);
       }
     });
     return out;
@@ -494,9 +500,9 @@ function loadSplitFile(file){
   if(!file)return;
   var r=new FileReader();
   r.onload=function(e){
-    var wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:false,dateNF:'DD/MM/YYYY'});
+    var wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
     var ws=wb.Sheets[wb.SheetNames[0]];
-    splitData.rows=fixDates(XLSX.utils.sheet_to_json(ws,{defval:'',raw:false}));
+    splitData.rows=fixDates(XLSX.utils.sheet_to_json(ws,{defval:''}));
     splitData.headers=splitData.rows.length?Object.keys(splitData.rows[0]):[];
     document.getElementById('fpArea').innerHTML='<div class="fp"><div class="fp-ic">&#128196;</div><div>'
       +'<div class="fp-name">'+esc(file.name)+'</div>'
@@ -620,9 +626,9 @@ function loadUnifyFiles(files){
   arr.forEach(function(file){
     var r=new FileReader();
     r.onload=function(e){
-      var wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:false,dateNF:'DD/MM/YYYY'});
+      var wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
       var ws=wb.Sheets[wb.SheetNames[0]];
-      var rows=fixDates(XLSX.utils.sheet_to_json(ws,{defval:'',raw:false}));
+      var rows=fixDates(XLSX.utils.sheet_to_json(ws,{defval:''}));
       unifyFiles.push({name:file.name,rows:rows,headers:rows.length?Object.keys(rows[0]):[]});
       if(++done===arr.length)renderUnifyFileList();
     };
@@ -993,9 +999,9 @@ function loadMergeFiles(files){
   arr.forEach(function(file){
     var r=new FileReader();
     r.onload=function(e){
-      var wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:false,dateNF:'DD/MM/YYYY'});
+      var wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
       var ws=wb.Sheets[wb.SheetNames[0]];
-      var rows=fixDates(XLSX.utils.sheet_to_json(ws,{defval:'',raw:false}));
+      var rows=fixDates(XLSX.utils.sheet_to_json(ws,{defval:''}));
       mergeFiles.push({name:file.name,rows:rows,headers:rows.length?Object.keys(rows[0]):[]});
       if(++done===arr.length)renderMergeFileList();
     };
