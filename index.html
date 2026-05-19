@@ -500,7 +500,7 @@ function loadSplitFile(file){
   if(!file)return;
   var r=new FileReader();
   r.onload=function(e){
-    var wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
+    var wb=XLSX.read(e.target.result,{type:'binary',cellDates:true});
     var ws=wb.Sheets[wb.SheetNames[0]];
     splitData.rows=fixDates(XLSX.utils.sheet_to_json(ws,{defval:''}));
     splitData.headers=splitData.rows.length?Object.keys(splitData.rows[0]):[];
@@ -510,7 +510,7 @@ function loadSplitFile(file){
       +'</div></div>';
     document.getElementById('btnSU').disabled=false;
   };
-  r.readAsArrayBuffer(file);
+  r.readAsBinaryString(file);
 }
 
 function showSplitConfig(){
@@ -626,13 +626,13 @@ function loadUnifyFiles(files){
   arr.forEach(function(file){
     var r=new FileReader();
     r.onload=function(e){
-      var wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
+      var wb=XLSX.read(e.target.result,{type:'binary',cellDates:true});
       var ws=wb.Sheets[wb.SheetNames[0]];
       var rows=fixDates(XLSX.utils.sheet_to_json(ws,{defval:''}));
       unifyFiles.push({name:file.name,rows:rows,headers:rows.length?Object.keys(rows[0]):[]});
       if(++done===arr.length)renderUnifyFileList();
     };
-    r.readAsArrayBuffer(file);
+    r.readAsBinaryString(file);
   });
 }
 
@@ -999,7 +999,7 @@ function loadMergeFiles(files){
   arr.forEach(function(file){
     var r=new FileReader();
     r.onload=function(e){
-      var wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
+      var wb=XLSX.read(e.target.result,{type:'binary',cellDates:true});
       var ws=wb.Sheets[wb.SheetNames[0]];
       var rows=fixDates(XLSX.utils.sheet_to_json(ws,{defval:''}));
       mergeFiles.push({name:file.name,rows:rows,headers:rows.length?Object.keys(rows[0]):[]});
