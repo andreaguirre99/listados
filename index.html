@@ -844,21 +844,7 @@ function runSplit(){
   var i=0,passwordTable=[];
   var log=document.getElementById('logArea'),bar=document.getElementById('progBar');
 
-  function next(){
-    if(i>=keys.length){
-      outerZip.generateAsync({type:'blob',encryptStrength:zipPwd?3:undefined,password:zipPwd||undefined})
-        .then(function(blob){
-          var url=URL.createObjectURL(blob);
-          showDone(keys.length+' archivos generados','Listados nominales - '+cfg.folderName+'.zip',url,'Listados nominales - '+cfg.folderName+'.zip',zipPwd,passwordTable);
-        });
-      return;
-    }
-    var k=keys[i];
-    var grpRows=groups[k];
-    var g2v=cfg.g2&&grpRows[0]?grpRows[0][cfg.g2]:'';
-    var baseFileName=cfg.g2&&g2v?'Listado - '+k+' - '+g2v:'Listado - '+k;
-    var folderLabel=sanitizeFolderName(cfg.g2&&g2v?'Listados - '+k+' - '+g2v:'Listados - '+k);
-    var targetFolder=cfg.subfolders?rootFolder.folder(folderLabel):rootFolder;
+  function processKey(k,grpRows,targetFolder,baseFileName,filePwd){
     var wb2=XLSX.utils.book_new();
     if(cfg.struct==='sheets'&&cfg.sheetVar){
       var subGroups=groupBy(grpRows,cfg.sheetVar);
@@ -873,14 +859,32 @@ function runSplit(){
     }
     var xlsxBuf=XLSX.write(wb2,{bookType:'xlsx',type:'array'});
     patchDropdowns(xlsxBuf,cfg.cols).then(function(finalBuf){
-      var filePwd=cfg.pwdFiles?filePwds[k]:null;
       addFileToFolder(targetFolder,baseFileName,finalBuf,filePwd).then(function(finalFn){
         if(filePwd)passwordTable.push({file:finalFn,password:filePwd});
         bar.style.width=Math.round(((i+1)/keys.length)*100)+'%';
-        log.innerHTML+='<div class="log-ok">&#10003; '+esc(finalFn)+(filePwd?' &middot; <strong>'+esc(filePwd)+'</strong>':'')+'</div>';
+        log.innerHTML+='<div class="log-ok">&#10003; '+esc(finalFn)+(filePwd?' &middot; pwd: <strong>'+esc(filePwd)+'</strong>':'')+'</div>';
         i++;setTimeout(next,8);
       });
     });
+  }
+
+  function next(){
+    if(i>=keys.length){
+      outerZip.generateAsync({type:'blob'})
+        .then(function(blob){
+          var url=URL.createObjectURL(blob);
+          showDone(keys.length+' archivos generados','Listados nominales - '+cfg.folderName+'.zip',url,'Listados nominales - '+cfg.folderName+'.zip',zipPwd,passwordTable);
+        });
+      return;
+    }
+    var k=keys[i];
+    var grpRows=groups[k];
+    var g2v=cfg.g2&&grpRows[0]?grpRows[0][cfg.g2]:'';
+    var baseFileName=cfg.g2&&g2v?'Listado - '+k+' - '+g2v:'Listado - '+k;
+    var folderLabel=sanitizeFolderName(cfg.g2&&g2v?'Listados - '+k+' - '+g2v:'Listados - '+k);
+    var targetFolder=cfg.subfolders?rootFolder.folder(folderLabel):rootFolder;
+    var filePwd=cfg.pwdFiles?(filePwds[k]||null):null;
+    processKey(k,grpRows,targetFolder,baseFileName,filePwd);
   }
   next();
 }
